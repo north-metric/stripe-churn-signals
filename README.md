@@ -17,7 +17,7 @@ Most small SaaS teams find out about churn from a "subscription canceled" email.
 | Trial ending | `customer.subscription.trial_will_end` | `trial_ending` |
 | Renewal coming up | `invoice.upcoming` | `renewal_upcoming` |
 
-Card expiry and usage declines aren't webhook events. See [CHECKLIST.md](CHECKLIST.md) for a weekly routine that covers them.
+Card expiry and usage declines aren't webhook events. See [CHECKLIST.md](CHECKLIST.md) for a weekly routine that covers them. For the full reference (signals, decline codes and first moves), see the [Stripe churn signals field guide](https://north-metric.github.io/).
 
 ## Quick start
 
