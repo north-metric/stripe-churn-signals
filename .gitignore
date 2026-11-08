@@ -1,3 +1,4 @@
 .env
 node_modules/
 signals.csv
+processed_events.txt
