@@ -1,5 +1,7 @@
 # stripe-churn-signals
 
+[![test](https://github.com/north-metric/stripe-churn-signals/actions/workflows/test.yml/badge.svg)](https://github.com/north-metric/stripe-churn-signals/actions/workflows/test.yml)
+
 A small, dependency-light Stripe webhook listener that flags early churn signals and writes them to a CSV you can open in any spreadsheet. No data team or warehouse needed.
 
 Most small SaaS teams find out about churn from a "subscription canceled" email. By then the customer decided weeks ago. Stripe already records most of the warning signs; this repo listens for them and keeps a running list.
@@ -10,7 +12,8 @@ Most small SaaS teams find out about churn from a "subscription canceled" email.
 |---|---|---|
 | Scheduled cancellation | `customer.subscription.updated` where `cancel_at_period_end` flips to `true` | `scheduled_cancel` |
 | Seat drop | `customer.subscription.updated`, total item `quantity` went down | `seat_drop` |
-| Downgrade | `customer.subscription.updated`, total item value went down | `downgrade` |
+| Downgrade | `customer.subscription.updated`, total value went down after normalizing every price to a monthly amount (interval and `interval_count`), same currency only | `downgrade` |
+| Currency change | `customer.subscription.updated`, items moved to a different currency (never compared as a downgrade) | `currency_change` |
 | Failed payment, retries left | `invoice.payment_failed` with `next_payment_attempt` set | `payment_retrying` |
 | Failed payment, retries over | `invoice.payment_failed` with `next_payment_attempt` = `null` | `payment_final` |
 | Subscription paused | `customer.subscription.paused` | `paused` |
@@ -26,6 +29,7 @@ git clone https://github.com/north-metric/stripe-churn-signals.git
 cd stripe-churn-signals
 npm install
 cp .env.example .env   # add your keys
+npm test               # 17 tests, no Stripe account needed
 npm start              # listens on PORT (default 4242)
 ```
 
@@ -48,8 +52,8 @@ invoice.upcoming
 Flags are appended to `signals.csv`:
 
 ```
-timestamp,customer,signal,object_id
-2026-11-07T10:12:03.000Z,cus_123,seat_drop,sub_456
+timestamp,event_id,customer,signal,object_id
+2026-11-07T10:12:03.000Z,evt_1Q...,cus_123,seat_drop,sub_456
 ```
 
 ## Keys and permissions
@@ -60,9 +64,18 @@ timestamp,customer,signal,object_id
 
 ## Notes
 
-- If you use tiered or usage-based prices, `unit_amount` can be `null`, so the downgrade check skips those items. Compare upcoming invoice amounts instead.
+- **Downgrades** are compared in monthly terms, so moving from $1,000/year to $100/month is not flagged (it's $1,200 a year). Metered, tiered and mixed-currency subscriptions are skipped rather than guessed at; compare upcoming invoice amounts for those.
 - Webhook field names can change between Stripe API versions. Check them against the version your account is pinned to.
-- Stripe retries webhooks, so the same event can arrive twice. The listener de-duplicates by event ID within one process run.
+- **Retries:** Stripe can deliver the same event more than once. Processed event IDs are stored in `STATE_FILE` (default `processed_events.txt`), so duplicates are ignored across restarts. For multiple instances, swap the file store in `index.js` for a shared database table.
+- **Ordering:** Stripe doesn't guarantee event order. Each signal is derived from a single event's own `previous_attributes`, so out-of-order delivery doesn't change the result.
+- `invoice.upcoming` reads the subscription from both the older `invoice.subscription` field and the newer `parent.subscription_details.subscription`.
+
+## Tests
+
+`npm test` runs Node's built-in test runner. It has two layers, and CI runs both on Node 20, 22 and 24 for every push:
+
+- `test/signals.test.js` covers the classification rules: scheduled cancels, seat drops, monthly vs annual and quarterly normalization, currency changes, metered and tiered prices, payment retry states, and old and new invoice shapes.
+- `test/webhook.test.js` sends real signed payloads (`stripe.webhooks.generateTestHeaderString`) through the HTTP endpoint. It checks the CSV output, rejects bad signatures, and ignores a retried event even after a restart.
 
 ## License
 
